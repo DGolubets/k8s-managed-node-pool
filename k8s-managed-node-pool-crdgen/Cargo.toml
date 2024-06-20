@@ -1,0 +1,9 @@
+[package]
+name = "k8s-managed-node-pool-crdgen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+k8s-managed-node-pool = {path = "../k8s-managed-node-pool"}
+kube = "0.92.0"
+serde_yaml = "0.9.34"

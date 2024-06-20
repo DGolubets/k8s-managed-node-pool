@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+    "k8s-managed-node-pool",
+    "k8s-managed-node-pool-crdgen",
+    "k8s-managed-node-pool-do",
+]
+
+resolver = "2"

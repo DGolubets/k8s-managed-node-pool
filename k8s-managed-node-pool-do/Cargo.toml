@@ -1,0 +1,16 @@
+[package]
+name = "k8s-managed-node-pool-do"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+k8s-managed-node-pool = {path = "../k8s-managed-node-pool"}
+anyhow = "1.0.86"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+tokio = { version = "1.38.0", features = ["rt", "macros"] }
+kube = { version = "0.92.0", features = ["runtime"] }
+serde = { version = "1.0.203", features = ["derive"] }
+de_env = "1.0.0"
+reqwest = { version="0.12.5", features = ["json"]}
+

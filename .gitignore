@@ -1,0 +1,8 @@
+# compiler
+/target/
+
+# IDE
+/.vscode/
+
+# some local test files
+/.test/
