@@ -8,7 +8,7 @@ use std::{
 use crate::{
     client::KubeClient,
     cloud_provider::CloudProvider,
-    model::{ManagedNodePool, ManagedNodePoolStatus, NodePoolTaint},
+    model::{ManagedNodePool, ManagedNodePoolStatus, NodePoolSettings, NodePoolTaint},
 };
 use anyhow::{format_err, Error};
 use futures::{StreamExt, TryFutureExt};
@@ -110,10 +110,11 @@ where
         };
 
         if let Some(node_pool) = &node_pool {
-            if node_pool.settings != pool.spec.settings {
+            if needs_update(&pool.spec.settings, &node_pool.settings) {
                 tracing::debug!("Updating node pool settings..");
+                let settings = patch_pool_settings(pool.spec.settings.clone(), &pool)?;
                 self.cloud_provider
-                    .update_pool_by_id(&node_pool.id, &pool.spec.settings)
+                    .update_pool_by_id(&node_pool.id, &settings)
                     .await?;
             }
         }
@@ -198,18 +199,7 @@ where
                 pods.len()
             );
             tracing::info!("Creating a pool..");
-            let mut settings = pool.spec.settings.clone();
-            settings.taints = Some(vec![NodePoolTaint {
-                key: LABEL_MANAGED_NODE_POOL.to_string(),
-                value: get_pool_taint(&pool)?.to_string(),
-                effect: "NoSchedule".to_string(),
-            }]);
-            let mut labels = HashMap::new();
-            labels.insert(
-                LABEL_MANAGED_NODE_POOL.to_string(),
-                get_pool_full_name(&pool)?.to_string(),
-            );
-            settings.labels = Some(labels);
+            let settings = patch_pool_settings(pool.spec.settings.clone(), &pool)?;
             let node_pool = self.cloud_provider.create_pool(&settings).await?;
             self.patch_status(
                 &pool,
@@ -320,6 +310,33 @@ where
     }
 }
 
+fn needs_update(new_settings: &NodePoolSettings, current_settings: &NodePoolSettings) -> bool {
+    new_settings.name != current_settings.name
+        || new_settings.size != current_settings.size
+        || new_settings.min_count != current_settings.min_count
+        || new_settings.max_count != current_settings.max_count
+        || new_settings.count != current_settings.count
+
+    // todo: handle labels, tags and taints changes
+}
+
+fn patch_pool_settings(
+    mut settings: NodePoolSettings,
+    pool: &ManagedNodePool,
+) -> Result<NodePoolSettings, Error> {
+    settings.taints.get_or_insert(vec![]).push(NodePoolTaint {
+        key: LABEL_MANAGED_NODE_POOL.to_string(),
+        value: get_pool_taint(&pool)?.to_string(),
+        effect: "NoSchedule".to_string(),
+    });
+    settings.labels.get_or_insert(HashMap::new()).insert(
+        LABEL_MANAGED_NODE_POOL.to_string(),
+        get_pool_full_name(&pool)?.to_string(),
+    );
+
+    Ok(settings)
+}
+
 fn find_pool_ref(pod: &Pod) -> Option<ObjectRef<ManagedNodePool>> {
     let pool_name = pod.labels().get(LABEL_MANAGED_NODE_POOL).or_else(|| {
         let spec = pod.spec.as_ref()?;
@@ -426,7 +443,14 @@ mod tests {
             .with(eq("status.phase==Pending"))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
 
-        let original_settings: NodePoolSettings = Default::default();
+        let mut original_settings: NodePoolSettings = Default::default();
+
+        // Cloud provider can set it's own pool labels and tags
+        // we should not take them into consideration when comparing settings
+        original_settings
+            .labels
+            .get_or_insert(HashMap::new())
+            .insert("external_label1".to_string(), "value1".to_string());
 
         let updated_settings = NodePoolSettings {
             name: "test-pool-1".to_string(),
@@ -434,9 +458,48 @@ mod tests {
             count: 2,
             min_count: None,
             max_count: None,
-            tags: None,
-            labels: None,
-            taints: None,
+            tags: Some(vec!["tag1".to_string()]),
+            labels: Some({
+                let mut map = HashMap::new();
+                map.insert("label1".to_string(), "value1".to_string());
+                map
+            }),
+            taints: Some(vec![NodePoolTaint {
+                key: "taint1".to_string(),
+                value: "value1".to_string(),
+                effect: "NoSchedule".to_string(),
+            }]),
+        };
+
+        // Update should reapply special taint and label
+        let expected_settings = NodePoolSettings {
+            name: "test-pool-1".to_string(),
+            size: "vm-large".to_string(),
+            count: 2,
+            min_count: None,
+            max_count: None,
+            tags: Some(vec!["tag1".to_string()]),
+            labels: Some({
+                let mut map = HashMap::new();
+                map.insert("label1".to_string(), "value1".to_string());
+                map.insert(
+                    LABEL_MANAGED_NODE_POOL.to_string(),
+                    "pool1.pool1_namespace".to_string(),
+                );
+                map
+            }),
+            taints: Some(vec![
+                NodePoolTaint {
+                    key: "taint1".to_string(),
+                    value: "value1".to_string(),
+                    effect: "NoSchedule".to_string(),
+                },
+                NodePoolTaint {
+                    key: LABEL_MANAGED_NODE_POOL.to_string(),
+                    value: "pool1_uid".to_string(),
+                    effect: "NoSchedule".to_string(),
+                },
+            ]),
         };
 
         let original_pool = NodePool {
@@ -456,9 +519,111 @@ mod tests {
 
         cloud_provider
             .expect_update_pool_by_id()
-            .with(eq(updated_pool.id.clone()), eq(updated_settings.clone()))
+            .with(eq(updated_pool.id.clone()), eq(expected_settings.clone()))
             .return_once(|_, _| Box::pin(async { Ok(updated_pool) }))
             .once();
+
+        let operator = Operator {
+            client: client.into(),
+            cloud_provider: cloud_provider.into(),
+        };
+        let operator = Arc::new(operator);
+
+        let pool = ManagedNodePool {
+            metadata: ObjectMeta {
+                uid: Some("pool1_uid".to_string()),
+                name: Some("pool1".to_string()),
+                namespace: Some("pool1_namespace".to_string()),
+                ..Default::default()
+            },
+            spec: ManagedNodePoolSpec {
+                settings: updated_settings,
+                idle_timeout: None,
+            },
+            status: Some(ManagedNodePoolStatus {
+                node_pool_id: Some("test-pool-id".to_string()),
+                ..Default::default()
+            }),
+        };
+        let pool = Arc::new(pool);
+
+        let action = operator.reconcile(pool).await.unwrap();
+
+        assert_eq!(action, Action::requeue(Duration::from_secs(3600)))
+    }
+
+    #[tokio::test]
+    async fn when_external_labels_updated_not_update_pool() {
+        let mut client = MockKubeClient::new();
+        let mut cloud_provider = MockCloudProvider::new();
+
+        client
+            .expect_list_nodes_with_labels()
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        client
+            .expect_list_pods_with_labels()
+            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(vec![Pod {
+                        metadata: ObjectMeta {
+                            labels: Some({
+                                let mut map = BTreeMap::new();
+                                map.insert(
+                                    LABEL_MANAGED_NODE_POOL.to_string(),
+                                    "pool1.pool1_namespace".to_string(),
+                                );
+                                map
+                            }),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }])
+                })
+            });
+
+        client
+            .expect_list_pods_with_fields()
+            .with(eq("status.phase==Pending"))
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let mut original_settings: NodePoolSettings = Default::default();
+        let updated_settings = original_settings.clone();
+
+        // Cloud provider can set it's own pool labels and tags
+        // we should not take them into consideration when comparing settings
+        original_settings
+            .labels
+            .get_or_insert(HashMap::new())
+            .insert("label1".to_string(), "value1".to_string());
+
+        original_settings
+            .taints
+            .get_or_insert(vec![])
+            .push(NodePoolTaint {
+                effect: "NoSchedule".to_string(),
+                key: "taint1".to_string(),
+                value: "value1".to_string(),
+            });
+
+        original_settings
+            .tags
+            .get_or_insert(vec![])
+            .push("tag1".to_string());
+
+        let original_pool = NodePool {
+            id: "test-pool-id".to_string(),
+            settings: original_settings.clone(),
+        };
+
+        cloud_provider
+            .expect_find_pool_by_id()
+            .with(eq(original_pool.id.clone()))
+            .return_once(|_| Box::pin(async { Ok(Some(original_pool)) }));
 
         let operator = Operator {
             client: client.into(),
@@ -729,9 +894,17 @@ mod tests {
                     count: 1,
                     min_count: None,
                     max_count: None,
-                    tags: None,
-                    labels: None,
-                    taints: None,
+                    tags: Some(vec!["tag1".to_string()]),
+                    labels: Some({
+                        let mut labels = HashMap::new();
+                        labels.insert("label1".to_string(), "value1".to_string());
+                        labels
+                    }),
+                    taints: Some(vec![NodePoolTaint {
+                        effect: "NoSchedule".to_string(),
+                        key: "taint1".to_string(),
+                        value: "value1".to_string(),
+                    }]),
                 },
                 idle_timeout: None,
             },
