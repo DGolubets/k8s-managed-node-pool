@@ -1,31 +1,46 @@
 # Managed node pool operator for K8s
+
 Supported clouds:
-* Digital Ocean
+
+- Digital Ocean
 
 ## About
+
 This operator dynamically creates a node pool in a managed K8s when there are pending pods assigned to it and tears it down when there are no more running pods.
 
 ## Rationale
-Suppose you want to run Spark jobs in your K8s cluster from time to time. 
-You'll likely need a dedicated pool of powerful machines for that. 
+
+Suppose you want to run Spark jobs in your K8s cluster from time to time.
+You'll likely need a dedicated pool of powerful machines for that.
 They cost much more so you don't want to keep it running all the time.
 
-First solution that comes to mind: just set auto scaling. 
+First solution that comes to mind: just set auto scaling.
 That should work just fine in Google Cloud, but not in Digital Ocean.
 The latter doesn't support auto scaling node pools to 0 nodes (yet?).
 So you endup with at least one node running all the time.
 
-Another solution: set up and tear down a node pool programmatically when your application starts and stops. 
+Another solution: set up and tear down a node pool programmatically when your application starts and stops.
 E.g. your Spark driver application doesn't have to run on powerful machine itself and can take care of that.
 The problem with that is if you deploy a little fix for your spark app you'll have to wait for it to tear down and set the pool up again, because your app doesn't know if you plan to restart it.
 
-To solve that we need some background process that can actually wait for demand for the pool and take care of creation and destruction of it in efficient way. 
+To solve that we need some background process that can actually wait for demand for the pool and take care of creation and destruction of it in efficient way.
 And that sounds like a job for K8s Operator.
+
+## Installation
+
+```bash
+helm install managed-node-pool charts/managed-node-pool-operator-do \
+--namespace managed-node-pool \
+--create-namespace \
+--set digital_ocean.cluster_id='{cluster id}' \
+--set digital_ocean.token='{token}'
+```
 
 ## Example
 
 Node pool spec:
-```
+
+```yaml
 apiVersion: dgolubets.github.io/v1alpha1
 kind: ManagedNodePool
 metadata:
@@ -38,14 +53,17 @@ spec:
   min_count: 1
   max_count: 10
   labels:
-    - label1
+    label1: "value1"
+    label2: "value2"
   tags:
     - tag1
+    - tag2
   idle_timeout: "15s"
 ```
 
 Pod spec:
-```
+
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:

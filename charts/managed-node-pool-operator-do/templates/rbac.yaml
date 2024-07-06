@@ -1,0 +1,42 @@
+# Scoped service account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+  labels:
+    {{- include "managed-node-pool-operator-do.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+# Access for the service account
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+rules:
+  - apiGroups: ["dgolubets.github.io"]
+    resources: ["managednodepools", "managednodepools/status", "managednodepools/finalizers"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+
+---
+# Binding the role to the account
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+subjects:
+- kind: ServiceAccount
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+  apiGroup: rbac.authorization.k8s.io

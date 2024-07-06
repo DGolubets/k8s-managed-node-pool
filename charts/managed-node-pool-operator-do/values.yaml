@@ -1,0 +1,46 @@
+digital_ocean: {}
+#   cluster_id: ""
+#   token: ""
+
+# Default values for managed-node-pool-operator-do.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/dgolubets/k8s-managed-node-pool-do
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Annotations to add to the service account
+  annotations: {}
+
+podAnnotations: {}
+
+podSecurityContext:
+  {}
+  # fsGroup: 2000
+
+securityContext:
+  {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+logging:
+  env_filter: info,k8s_managed_node_pool=debug
+
+env: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

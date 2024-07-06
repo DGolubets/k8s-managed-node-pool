@@ -1,0 +1,104 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: managednodepools.dgolubets.github.io
+spec:
+  group: dgolubets.github.io
+  names:
+    categories: []
+    kind: ManagedNodePool
+    plural: managednodepools
+    shortNames: []
+    singular: managednodepool
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns: []
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Managed node pool that gets created or destroyed automatically based on demand.
+        properties:
+          spec:
+            properties:
+              count:
+                format: uint32
+                minimum: 0.0
+                type: integer
+              idle_timeout:
+                type: string
+              labels:
+                additionalProperties:
+                  type: string
+                nullable: true
+                type: object
+              max_count:
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              min_count:
+                format: uint32
+                minimum: 0.0
+                nullable: true
+                type: integer
+              name:
+                type: string
+              size:
+                type: string
+              tags:
+                items:
+                  type: string
+                nullable: true
+                type: array
+              taints:
+                items:
+                  properties:
+                    effect:
+                      type: string
+                    key:
+                      type: string
+                    value:
+                      type: string
+                  required:
+                  - effect
+                  - key
+                  - value
+                  type: object
+                nullable: true
+                type: array
+            required:
+            - count
+            - idle_timeout
+            - name
+            - size
+            type: object
+          status:
+            nullable: true
+            properties:
+              destroy_after:
+                nullable: true
+                properties:
+                  nanos_since_epoch:
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  secs_since_epoch:
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                required:
+                - nanos_since_epoch
+                - secs_since_epoch
+                type: object
+              node_pool_id:
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        title: ManagedNodePool
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+  namespace: {{ .Release.Namespace  }}
+  labels:
+    {{- include "managed-node-pool-operator-do.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "managed-node-pool-operator-do.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "managed-node-pool-operator-do.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "managed-node-pool-operator-do.fullname" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            - name: RUST_LOG
+              value: {{ .Values.logging.env_filter }}
+            - name: DO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+                  key: token
+            - name: DO_CLUSTER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "managed-node-pool-operator-do.fullname" . }}
+                  key: cluster_id
+          {{- with .Values.env }}
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
