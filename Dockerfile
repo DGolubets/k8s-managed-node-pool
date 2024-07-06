@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=./target \
 # Prod image
 FROM alpine:3.20
 ARG PACKAGE
-RUN apk add --no-cache openssl
+RUN apk add --no-cache libgcc openssl
 WORKDIR /opt/app
 COPY --from=0 /opt/app/release/application .
 CMD ["./application"]
