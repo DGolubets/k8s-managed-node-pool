@@ -311,13 +311,10 @@ where
 }
 
 fn needs_update(new_settings: &NodePoolSettings, current_settings: &NodePoolSettings) -> bool {
-    new_settings.name != current_settings.name
-        || new_settings.size != current_settings.size
+    // todo: handle more updated settings
+    new_settings.count != current_settings.count
         || new_settings.min_count != current_settings.min_count
         || new_settings.max_count != current_settings.max_count
-        || new_settings.count != current_settings.count
-
-    // todo: handle labels, tags and taints changes
 }
 
 fn patch_pool_settings(

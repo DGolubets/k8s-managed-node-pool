@@ -142,7 +142,7 @@ impl CloudProvider for DigitalOcean {
 fn to_do_settings(settings: &NodePoolSettings) -> DoNodePoolSettings {
     DoNodePoolSettings {
         name: settings.name.clone(),
-        size: "s-1vcpu-2gb".to_string(),
+        size: settings.size.to_string(),
         count: settings.count,
         auto_scale: Some(settings.min_count.is_some() || settings.max_count.is_some()),
         min_nodes: settings.min_count,
