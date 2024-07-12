@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Error};
-use k8s_openapi::api::core::v1::{Node, Pod};
+use k8s_openapi::api::core::v1::Pod;
 use kube::{
     api::{ListParams, Patch, PatchParams},
     Api, Client,
@@ -14,7 +14,6 @@ use mockall::automock;
 #[cfg_attr(test, automock)]
 pub trait KubeClient {
     fn underlying_client(&self) -> &Client;
-    async fn list_nodes_with_labels(&self, label_selector: &str) -> Result<Vec<Node>, Error>;
     async fn list_pods_with_labels(&self, label_selector: &str) -> Result<Vec<Pod>, Error>;
     async fn list_pods_with_fields(&self, field_selector: &str) -> Result<Vec<Pod>, Error>;
     async fn patch_pod(&self, pod: &Pod, manager: &str) -> Result<(), Error>;
@@ -34,15 +33,6 @@ pub struct DefaultKubeClient {
 impl KubeClient for DefaultKubeClient {
     fn underlying_client(&self) -> &Client {
         &self.client
-    }
-
-    async fn list_nodes_with_labels(&self, label_selector: &str) -> Result<Vec<Node>, Error> {
-        let api: Api<Node> = Api::all(self.client.clone());
-        let nodes = api
-            .list(&ListParams::default().labels(label_selector))
-            .await?
-            .items;
-        Ok(nodes)
     }
 
     async fn list_pods_with_labels(&self, label_selector: &str) -> Result<Vec<Pod>, Error> {

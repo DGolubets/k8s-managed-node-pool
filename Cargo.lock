@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-managed-node-pool-do"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "de_env",

@@ -93,6 +93,12 @@ spec:
               node_pool_id:
                 nullable: true
                 type: string
+              node_pool_status:
+                enum:
+                - CREATING
+                - CREATED
+                nullable: true
+                type: string
             type: object
         required:
         - spec

@@ -8,11 +8,13 @@ use std::{
 use crate::{
     client::KubeClient,
     cloud_provider::CloudProvider,
-    model::{ManagedNodePool, ManagedNodePoolStatus, NodePoolSettings, NodePoolTaint},
+    model::{
+        ManagedNodePool, ManagedNodePoolStatus, NodePoolSettings, NodePoolStatus, NodePoolTaint,
+    },
 };
 use anyhow::{format_err, Error};
 use futures::{StreamExt, TryFutureExt};
-use k8s_openapi::api::core::v1::{Node, Pod, PodSpec, Toleration};
+use k8s_openapi::api::core::v1::{Pod, PodSpec, Toleration};
 use kube::{
     api::ObjectMeta,
     runtime::{
@@ -101,7 +103,13 @@ where
         let mut node_pool = if let Some(status) = &pool.status {
             if let Some(id) = &status.node_pool_id {
                 tracing::debug!("Getting existing node pool..");
-                self.cloud_provider.find_pool_by_id(id).await?
+                if let Some(pool_id) = self.cloud_provider.find_pool_by_id(id).await? {
+                    Some(pool_id)
+                } else {
+                    tracing::error!("Failed to find nodepool by id. Resetting status..");
+                    self.patch_status(&pool, Default::default()).await?;
+                    None
+                }
             } else {
                 None
             }
@@ -119,8 +127,35 @@ where
             }
         }
 
-        tracing::debug!("Listing nodes..");
-        let nodes = self.list_nodes(&pool).await?;
+        if let Some(ManagedNodePoolStatus {
+            node_pool_id: None,
+            node_pool_status: Some(NodePoolStatus::CREATING),
+            destroy_after: _,
+        }) = &pool.status
+        {
+            tracing::warn!("Pool is in CREATING state, but no pool id is recorded. Syncing..");
+
+            node_pool = if let Some(node_pool) = self
+                .cloud_provider
+                .find_pool_by_name(&pool.spec.settings.name)
+                .await?
+            {
+                self.patch_status(
+                    &pool,
+                    ManagedNodePoolStatus {
+                        node_pool_id: Some(node_pool.id.clone()),
+                        node_pool_status: Some(NodePoolStatus::CREATED),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                Some(node_pool)
+            } else {
+                tracing::error!("Failed to find nodepool by name. Resetting status..");
+                self.patch_status(&pool, Default::default()).await?;
+                None
+            }
+        }
 
         tracing::debug!("Listing podes..");
         let pods = self.list_pods(&pool).await?;
@@ -132,35 +167,13 @@ where
             }
         }
 
-        if !nodes.is_empty() && pool.status.iter().all(|s| s.node_pool_id.is_none()) {
-            tracing::warn!("Detected nodes but no pool id is recorded. Syncing..");
-
-            node_pool = if let Some(node_pool) = self
-                .cloud_provider
-                .find_pool_by_name(&pool.spec.settings.name)
-                .await?
-            {
-                self.patch_status(
-                    &pool,
-                    ManagedNodePoolStatus {
-                        node_pool_id: Some(node_pool.id.clone()),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-                Some(node_pool)
-            } else {
-                tracing::error!("Failed to find nodepool by name.");
-                None
-            }
-        }
-
         if node_pool.is_some() && pods.is_empty() {
             tracing::debug!("Node pool is idle.");
 
             if let Some(
                 status @ ManagedNodePoolStatus {
                     node_pool_id: Some(node_pool_id),
+                    node_pool_status: _,
                     destroy_after,
                 },
             ) = &pool.status
@@ -199,12 +212,22 @@ where
                 pods.len()
             );
             tracing::info!("Creating a pool..");
+            self.patch_status(
+                &pool,
+                ManagedNodePoolStatus {
+                    node_pool_id: None,
+                    node_pool_status: Some(NodePoolStatus::CREATING),
+                    ..Default::default()
+                },
+            )
+            .await?;
             let settings = patch_pool_settings(pool.spec.settings.clone(), &pool)?;
             let node_pool = self.cloud_provider.create_pool(&settings).await?;
             self.patch_status(
                 &pool,
                 ManagedNodePoolStatus {
                     node_pool_id: Some(node_pool.id),
+                    node_pool_status: Some(NodePoolStatus::CREATED),
                     ..Default::default()
                 },
             )
@@ -233,16 +256,6 @@ where
     ) -> Action {
         tracing::error!("Error: {}", err);
         Action::requeue(Duration::from_secs(5))
-    }
-
-    async fn list_nodes(&self, pool: &ManagedNodePool) -> Result<Vec<Node>, Error> {
-        self.client
-            .list_nodes_with_labels(&format!(
-                "{}={}",
-                LABEL_MANAGED_NODE_POOL,
-                get_pool_full_name(pool)?
-            ))
-            .await
     }
 
     async fn list_pods(&self, pool: &ManagedNodePool) -> Result<Vec<Pod>, Error> {
@@ -323,7 +336,7 @@ fn patch_pool_settings(
 ) -> Result<NodePoolSettings, Error> {
     settings.taints.get_or_insert(vec![]).push(NodePoolTaint {
         key: LABEL_MANAGED_NODE_POOL.to_string(),
-        value: get_pool_taint(&pool)?.to_string(),
+        value: get_pool_taint(pool)?.to_string(),
         effect: "NoSchedule".to_string(),
     });
     settings.labels.get_or_insert(HashMap::new()).insert(
@@ -405,13 +418,6 @@ mod tests {
     async fn when_spec_updated_update_node_pool() {
         let mut client = MockKubeClient::new();
         let mut cloud_provider = MockCloudProvider::new();
-
-        client
-            .expect_list_nodes_with_labels()
-            .with(eq(
-                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
-            ))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
             .expect_list_pods_with_labels()
@@ -555,13 +561,6 @@ mod tests {
         let mut cloud_provider = MockCloudProvider::new();
 
         client
-            .expect_list_nodes_with_labels()
-            .with(eq(
-                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
-            ))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-
-        client
             .expect_list_pods_with_labels()
             .with(eq("dgolubets.github.io/managed-node-pool"))
             .returning(|_| {
@@ -695,11 +694,6 @@ mod tests {
         let cloud_provider = MockCloudProvider::new();
 
         client
-            .expect_list_nodes_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool=pool1.namespace1"))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-
-        client
             .expect_list_pods_with_labels()
             .with(eq("dgolubets.github.io/managed-node-pool"))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
@@ -747,11 +741,6 @@ mod tests {
     async fn when_pending_pods_dont_match_do_nothing() {
         let mut client = MockKubeClient::new();
         let cloud_provider = MockCloudProvider::new();
-
-        client
-            .expect_list_nodes_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool=pool1.namespace1"))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
             .expect_list_pods_with_labels()
@@ -820,13 +809,6 @@ mod tests {
     async fn when_pending_pods_match_patch_them_and_create_pool() {
         let mut client = MockKubeClient::new();
         let mut cloud_provider = MockCloudProvider::new();
-
-        client
-            .expect_list_nodes_with_labels()
-            .with(eq(
-                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
-            ))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
             .expect_list_pods_with_labels()
@@ -947,7 +929,19 @@ mod tests {
             .withf(|pool, status, _| {
                 pool.metadata.name.as_deref() == Some("pool1")
                     && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
+                    && status.node_pool_id.is_none()
+                    && status.node_pool_status == Some(NodePoolStatus::CREATING)
+            })
+            .return_once(move |_, _, _| Box::pin(async { Ok(()) }))
+            .once();
+
+        client
+            .expect_patch_pool_status()
+            .withf(|pool, status, _| {
+                pool.metadata.name.as_deref() == Some("pool1")
+                    && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
                     && status.node_pool_id.as_deref() == Some("node_pool_id")
+                    && status.node_pool_status == Some(NodePoolStatus::CREATED)
             })
             .return_once(move |_, _, _| Box::pin(async { Ok(()) }))
             .once();
@@ -967,13 +961,6 @@ mod tests {
     async fn when_labelled_pods_and_no_node_pool_create_node_pool() {
         let mut client = MockKubeClient::new();
         let mut cloud_provider = MockCloudProvider::new();
-
-        client
-            .expect_list_nodes_with_labels()
-            .with(eq(
-                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
-            ))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
             .expect_list_pods_with_labels()
@@ -1069,7 +1056,19 @@ mod tests {
             .withf(|pool, status, _| {
                 pool.metadata.name.as_deref() == Some("pool1")
                     && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
+                    && status.node_pool_id.is_none()
+                    && status.node_pool_status == Some(NodePoolStatus::CREATING)
+            })
+            .return_once(move |_, _, _| Box::pin(async { Ok(()) }))
+            .once();
+
+        client
+            .expect_patch_pool_status()
+            .withf(|pool, status, _| {
+                pool.metadata.name.as_deref() == Some("pool1")
+                    && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
                     && status.node_pool_id.as_deref() == Some("node_pool_id")
+                    && status.node_pool_status == Some(NodePoolStatus::CREATED)
             })
             .return_once(move |_, _, _| Box::pin(async { Ok(()) }))
             .once();
@@ -1086,33 +1085,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn when_no_pool_id_recorded_but_nodes_are_there_then_sync() {
+    async fn when_no_pool_id_recorded_and_status_is_creating_then_sync() {
         let mut client = MockKubeClient::new();
         let mut cloud_provider = MockCloudProvider::new();
-
-        client
-            .expect_list_nodes_with_labels()
-            .with(eq(
-                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
-            ))
-            .returning(|_| {
-                Box::pin(async {
-                    Ok(vec![Node {
-                        metadata: ObjectMeta {
-                            labels: Some({
-                                let mut map = BTreeMap::new();
-                                map.insert(
-                                    LABEL_MANAGED_NODE_POOL.to_string(),
-                                    "pool1.pool1_namespace".to_string(),
-                                );
-                                map
-                            }),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    }])
-                })
-            });
 
         client
             .expect_list_pods_with_labels()
@@ -1155,7 +1130,10 @@ mod tests {
                 },
                 idle_timeout: None,
             },
-            status: None,
+            status: Some(ManagedNodePoolStatus {
+                node_pool_status: Some(NodePoolStatus::CREATING),
+                ..Default::default()
+            }),
         };
         let pool = Arc::new(pool);
 
@@ -1177,6 +1155,7 @@ mod tests {
                 pool.metadata.name.as_deref() == Some("pool1")
                     && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
                     && status.node_pool_id.as_deref() == Some("node_pool_id")
+                    && status.node_pool_status == Some(NodePoolStatus::CREATED)
             })
             .return_once(move |_, _, _| Box::pin(async { Ok(()) }))
             .once();
@@ -1208,13 +1187,6 @@ mod tests {
                     }))
                 })
             });
-
-        client
-            .expect_list_nodes_with_labels()
-            .with(eq(
-                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
-            ))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
             .expect_list_pods_with_labels()
@@ -1253,6 +1225,7 @@ mod tests {
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("node_pool_id".to_string()),
+                node_pool_status: Some(NodePoolStatus::CREATED),
                 destroy_after: None,
             }),
         };
@@ -1294,13 +1267,6 @@ mod tests {
             .once();
 
         client
-            .expect_list_nodes_with_labels()
-            .with(eq(
-                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
-            ))
-            .returning(|_| Box::pin(async { Ok(vec![]) }));
-
-        client
             .expect_list_pods_with_labels()
             .with(eq("dgolubets.github.io/managed-node-pool"))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
@@ -1337,6 +1303,7 @@ mod tests {
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("node_pool_id".to_string()),
+                node_pool_status: Some(NodePoolStatus::CREATED),
                 destroy_after: Some(SystemTime::now()),
             }),
         };

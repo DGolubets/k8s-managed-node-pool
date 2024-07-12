@@ -29,7 +29,15 @@ pub struct ManagedNodePoolSpec {
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, Default)]
 pub struct ManagedNodePoolStatus {
     pub node_pool_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_pool_status: Option<NodePoolStatus>,
     pub destroy_after: Option<SystemTime>,
+}
+
+#[derive(PartialEq, Deserialize, Serialize, Clone, Debug, JsonSchema)]
+pub enum NodePoolStatus {
+    CREATING,
+    CREATED,
 }
 
 #[derive(Debug, Clone)]
