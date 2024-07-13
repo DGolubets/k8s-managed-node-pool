@@ -161,6 +161,7 @@ where
 
         tracing::debug!("Listing podes..");
         let pods = self.list_pods(&pool).await?;
+        tracing::debug!("Found {} pods.", pods.len());
 
         for pod in &pods {
             if !pod.labels().contains_key(LABEL_MANAGED_NODE_POOL) {
@@ -205,6 +206,26 @@ where
                 self.patch_status(&pool, Default::default()).await?;
             } else {
                 tracing::warn!("Cannot shutdown the pool due to missing status information.");
+            }
+        }
+
+        if !pods.is_empty() {
+            if let Some(ManagedNodePoolStatus {
+                node_pool_id: Some(node_pool_id),
+                node_pool_status: Some(NodePoolStatus::CREATED),
+                destroy_after: Some(_),
+            }) = &pool.status
+            {
+                tracing::info!("Cancelling the pool shutdown down..");
+                self.patch_status(
+                    &pool,
+                    ManagedNodePoolStatus {
+                        node_pool_id: Some(node_pool_id.clone()),
+                        node_pool_status: Some(NodePoolStatus::CREATED),
+                        destroy_after: None,
+                    },
+                )
+                .await?;
             }
         }
 
@@ -1417,6 +1438,97 @@ mod tests {
                 pool.metadata.name.as_deref() == Some("pool1")
                     && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
                     && status.node_pool_id.is_none()
+                    && status.destroy_after.is_none()
+            })
+            .return_once(move |_, _, _| Box::pin(async { Ok(()) }))
+            .once();
+
+        let pool = ManagedNodePool {
+            metadata: ObjectMeta {
+                uid: Some("pool1_uid".to_string()),
+                name: Some("pool1".to_string()),
+                namespace: Some("pool1_namespace".to_string()),
+                ..Default::default()
+            },
+            spec: ManagedNodePoolSpec {
+                settings: NodePoolSettings {
+                    name: "test-pool-1".to_string(),
+                    ..Default::default()
+                },
+                idle_timeout: Some(Duration::from_secs(10)),
+            },
+            status: Some(ManagedNodePoolStatus {
+                node_pool_id: Some("node_pool_id".to_string()),
+                node_pool_status: Some(NodePoolStatus::CREATED),
+                destroy_after: Some(SystemTime::now()),
+            }),
+        };
+
+        let pool = Arc::new(pool);
+
+        let operator = Operator {
+            client: client.into(),
+            cloud_provider: cloud_provider.into(),
+        };
+        let operator = Arc::new(operator);
+
+        let action = operator.reconcile(pool).await.unwrap();
+
+        assert_eq!(action, Action::requeue(Duration::from_secs(3600)))
+    }
+
+    #[tokio::test]
+    async fn when_node_pool_becomes_active_clear_destruction_time() {
+        let mut client = MockKubeClient::new();
+        let mut cloud_provider = MockCloudProvider::new();
+
+        cloud_provider
+            .expect_find_pool_by_id()
+            .with(eq("node_pool_id"))
+            .return_once(move |_| {
+                Box::pin(async {
+                    Ok(Some(NodePool {
+                        id: "node_pool_id".to_string(),
+                        settings: Default::default(),
+                    }))
+                })
+            });
+
+        client
+            .expect_list_pods_with_labels()
+            .with(eq(LABEL_MANAGED_NODE_POOL))
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(vec![Pod {
+                        metadata: ObjectMeta {
+                            name: Some("pod2".to_string()),
+                            namespace: Some("pod2_namespace".to_string()),
+                            labels: Some({
+                                let mut map = BTreeMap::new();
+                                map.insert(
+                                    LABEL_MANAGED_NODE_POOL.to_string(),
+                                    "pool1.pool1_namespace".to_string(),
+                                );
+                                map
+                            }),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }])
+                })
+            });
+
+        client
+            .expect_list_pods_with_fields()
+            .with(eq(FIELD_SELECTOR_PENDING))
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        client
+            .expect_patch_pool_status()
+            .withf(|pool, status, _| {
+                pool.metadata.name.as_deref() == Some("pool1")
+                    && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
+                    && status.node_pool_id.as_deref() == Some("node_pool_id")
                     && status.destroy_after.is_none()
             })
             .return_once(move |_, _, _| Box::pin(async { Ok(()) }))

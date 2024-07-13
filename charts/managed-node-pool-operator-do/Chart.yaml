@@ -2,5 +2,5 @@ apiVersion: v2
 name: managed-node-pool-operator-do
 description: Managed node pool for Kubernetes running in Digital Ocean
 type: application
-version: 0.1.6
-appVersion: "0.1.6"
+version: 0.1.7
+appVersion: "0.1.7"
