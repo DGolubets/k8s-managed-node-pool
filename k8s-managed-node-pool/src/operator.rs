@@ -118,9 +118,11 @@ where
         };
 
         if let Some(node_pool) = &node_pool {
-            if needs_update(&pool.spec.settings, &node_pool.settings) {
+            if let Some(updated_settings) =
+                get_settings_for_update(&pool.spec.settings, &node_pool.settings)
+            {
                 tracing::debug!("Updating node pool settings..");
-                let settings = patch_pool_settings(pool.spec.settings.clone(), &pool)?;
+                let settings = patch_pool_settings(updated_settings, &pool)?;
                 self.cloud_provider
                     .update_pool_by_id(&node_pool.id, &settings)
                     .await?;
@@ -323,11 +325,30 @@ where
     }
 }
 
-fn needs_update(new_settings: &NodePoolSettings, current_settings: &NodePoolSettings) -> bool {
+fn get_settings_for_update(
+    new_settings: &NodePoolSettings,
+    current_settings: &NodePoolSettings,
+) -> Option<NodePoolSettings> {
     // todo: handle more updated settings
-    new_settings.count != current_settings.count
-        || new_settings.min_count != current_settings.min_count
-        || new_settings.max_count != current_settings.max_count
+    let auto_scaling = new_settings.min_count.is_some() && new_settings.max_count.is_some();
+    if auto_scaling {
+        if new_settings.min_count != current_settings.min_count
+            || new_settings.max_count != current_settings.max_count
+        {
+            let mut updated_settings = new_settings.clone();
+            // keep current count to avoid scaling pool down
+            updated_settings.count = current_settings.count;
+            Some(updated_settings)
+        } else {
+            None
+        }
+    } else {
+        if new_settings.count != current_settings.count {
+            Some(new_settings.clone())
+        } else {
+            None
+        }
+    }
 }
 
 fn patch_pool_settings(
@@ -503,6 +524,120 @@ mod tests {
                     effect: "NoSchedule".to_string(),
                 },
             ]),
+        };
+
+        let original_pool = NodePool {
+            id: "test-pool-id".to_string(),
+            settings: original_settings.clone(),
+        };
+
+        let updated_pool = NodePool {
+            id: "test-pool-id".to_string(),
+            settings: updated_settings.clone(),
+        };
+
+        cloud_provider
+            .expect_find_pool_by_id()
+            .with(eq(original_pool.id.clone()))
+            .return_once(|_| Box::pin(async { Ok(Some(original_pool)) }));
+
+        cloud_provider
+            .expect_update_pool_by_id()
+            .with(eq(updated_pool.id.clone()), eq(expected_settings.clone()))
+            .return_once(|_, _| Box::pin(async { Ok(updated_pool) }))
+            .once();
+
+        let operator = Operator {
+            client: client.into(),
+            cloud_provider: cloud_provider.into(),
+        };
+        let operator = Arc::new(operator);
+
+        let pool = ManagedNodePool {
+            metadata: ObjectMeta {
+                uid: Some("pool1_uid".to_string()),
+                name: Some("pool1".to_string()),
+                namespace: Some("pool1_namespace".to_string()),
+                ..Default::default()
+            },
+            spec: ManagedNodePoolSpec {
+                settings: updated_settings,
+                idle_timeout: None,
+            },
+            status: Some(ManagedNodePoolStatus {
+                node_pool_id: Some("test-pool-id".to_string()),
+                ..Default::default()
+            }),
+        };
+        let pool = Arc::new(pool);
+
+        let action = operator.reconcile(pool).await.unwrap();
+
+        assert_eq!(action, Action::requeue(Duration::from_secs(3600)))
+    }
+
+    #[tokio::test]
+    async fn when_spec_updated_and_auto_scale_update_node_pool_keep_count() {
+        let mut client = MockKubeClient::new();
+        let mut cloud_provider = MockCloudProvider::new();
+
+        client
+            .expect_list_pods_with_labels()
+            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(vec![Pod {
+                        metadata: ObjectMeta {
+                            labels: Some({
+                                let mut map = BTreeMap::new();
+                                map.insert(
+                                    LABEL_MANAGED_NODE_POOL.to_string(),
+                                    "pool1.pool1_namespace".to_string(),
+                                );
+                                map
+                            }),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }])
+                })
+            });
+
+        client
+            .expect_list_pods_with_fields()
+            .with(eq("status.phase==Pending"))
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        let mut original_settings: NodePoolSettings = Default::default();
+        original_settings.min_count = Some(1);
+        original_settings.max_count = Some(3);
+        original_settings.count = 2;
+
+        let mut updated_settings = original_settings.clone();
+        updated_settings.min_count = Some(1);
+        updated_settings.max_count = Some(10);
+        updated_settings.count = 1;
+
+        let expected_settings = NodePoolSettings {
+            name: original_settings.name.clone(),
+            size: original_settings.size.clone(),
+            count: original_settings.count,
+            min_count: updated_settings.min_count,
+            max_count: updated_settings.max_count,
+            labels: Some({
+                let mut map = HashMap::new();
+                map.insert(
+                    LABEL_MANAGED_NODE_POOL.to_string(),
+                    "pool1.pool1_namespace".to_string(),
+                );
+                map
+            }),
+            taints: Some(vec![NodePoolTaint {
+                key: LABEL_MANAGED_NODE_POOL.to_string(),
+                value: "pool1_uid".to_string(),
+                effect: "NoSchedule".to_string(),
+            }]),
+            tags: None,
         };
 
         let original_pool = NodePool {
