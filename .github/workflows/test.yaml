@@ -3,8 +3,20 @@ name: Test
 on:
   push:
     branches: ["master"]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "k8s-managed-node-pool/**"
+      - "k8s-managed-node-pool-crdgen/**"
+      - "k8s-managed-node-pool-do/**"
   pull_request:
     branches: ["master"]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "k8s-managed-node-pool/**"
+      - "k8s-managed-node-pool-crdgen/**"
+      - "k8s-managed-node-pool-do/**"
 
 env:
   CARGO_TERM_COLOR: always
