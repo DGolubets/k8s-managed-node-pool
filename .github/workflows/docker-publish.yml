@@ -1,14 +1,17 @@
 name: Docker
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: k8s-managed-node-pool-do
+  IMAGE_NAME: dgolubets/k8s-managed-node-pool-do
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,10 +22,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install 
+      - name: Install
         uses: sigstore/cosign-installer@v3.5.0
         with:
-          cosign-release: 'v2.2.4'
+          cosign-release: "v2.2.4"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.0.0
