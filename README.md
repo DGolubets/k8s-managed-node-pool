@@ -1,5 +1,7 @@
 # Managed node pool operator for K8s
 
+![Test](https://github.com/DGolubets/k8s-managed-node-pool/actions/workflows/test.yaml/badge.svg)
+
 Supported clouds:
 
 - Digital Ocean
