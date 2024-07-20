@@ -1,0 +1,42 @@
+name: Helm
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+env:
+  REGISTRY: ghcr.io
+  USER: ${{ github.actor }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get Tags
+        id: tag
+        uses: ildug/get-tag-action@v1
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Helm chart
+        id: build
+        run: helm package charts/managed-node-pool-operator-do --version $DAG_VERSION --app-version $DAG_VERSION
+
+      - name: Push Helm chart
+        id: push
+        run: helm push managed-node-pool-operator-do-$DAG_VERSION.tgz oci://$REGISTRY/$USER
