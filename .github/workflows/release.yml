@@ -43,7 +43,9 @@ jobs:
         with:
           context: .
           push: true
-          tags: "$USER/$IMAGE_NAME:$DAG_VERSION"
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.USER }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.USER }}/${{ env.IMAGE_NAME }}:${{ env.DAG_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
