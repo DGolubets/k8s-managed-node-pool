@@ -31,7 +31,7 @@ And that sounds like a job for K8s Operator.
 ## Installation
 
 ```bash
-helm install managed-node-pool charts/managed-node-pool-operator-do \
+helm install mnp oci://ghcr.io/dgolubets/managed-node-pool-operator-do \
 --namespace managed-node-pool \
 --create-namespace \
 --set digital_ocean.cluster_id='{cluster id}' \
