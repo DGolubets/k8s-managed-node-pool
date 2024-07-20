@@ -1,14 +1,15 @@
-name: Docker
+name: Release
 
 on:
-  workflow_dispatch:
   push:
     tags:
-      - "v*.*.*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: dgolubets/k8s-managed-node-pool-do
+  USER: dgolubets
+  IMAGE_NAME: k8s-managed-node-pool-do
+  CHART_NAME: managed-node-pool-operator-do
 
 jobs:
   build:
@@ -22,10 +23,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install
-        uses: sigstore/cosign-installer@v3.5.0
-        with:
-          cosign-release: "v2.2.4"
+      - name: Get Tags
+        id: tag
+        uses: ildug/get-tag-action@v1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.0.0
@@ -37,25 +37,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5.0.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
       - name: Build and push Docker image
-        id: build-and-push
+        id: build-and-push-docker
         uses: docker/build-push-action@v5.0.0
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: "$USER/$IMAGE_NAME:$DAG_VERSION"
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Sign the published Docker image
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        run: echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+      - name: Build and publish Helm chart
+        id: build-and-push-helm
+        run: |
+          helm package charts/$CHART_NAME --version $DAG_VERSION --app-version $DAG_VERSION
+          helm push $CHART_NAME-$DAG_VERSION.tgz oci://$REGISTRY/$USER
