@@ -284,7 +284,11 @@ where
     async fn list_pods(&self, pool: &ManagedNodePool) -> Result<Vec<Pod>, Error> {
         let labeled_pods = self
             .client
-            .list_pods_with_labels(LABEL_MANAGED_NODE_POOL)
+            .list_pods_with_labels(&format!(
+                "{}={}",
+                LABEL_MANAGED_NODE_POOL,
+                get_pool_full_name(pool)?
+            ))
             .await?;
 
         let pending_pods = self
@@ -463,7 +467,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| {
                 Box::pin(async {
                     Ok(vec![Pod {
@@ -604,7 +610,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| {
                 Box::pin(async {
                     Ok(vec![Pod {
@@ -718,7 +726,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| {
                 Box::pin(async {
                     Ok(vec![Pod {
@@ -851,7 +861,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
@@ -868,7 +880,7 @@ mod tests {
         let pool = ManagedNodePool {
             metadata: ObjectMeta {
                 name: Some("pool1".to_string()),
-                namespace: Some("namespace1".to_string()),
+                namespace: Some("pool1_namespace".to_string()),
                 ..Default::default()
             },
             spec: ManagedNodePoolSpec {
@@ -900,7 +912,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         let pending_pods = vec![
@@ -936,7 +950,7 @@ mod tests {
         let pool = ManagedNodePool {
             metadata: ObjectMeta {
                 name: Some("pool1".to_string()),
-                namespace: Some("namespace1".to_string()),
+                namespace: Some("pool1_namespace".to_string()),
                 ..Default::default()
             },
             spec: ManagedNodePoolSpec {
@@ -968,7 +982,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         let pending_pods = vec![
@@ -1120,7 +1136,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| {
                 Box::pin(async {
                     Ok(vec![Pod {
@@ -1247,7 +1265,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| {
                 Box::pin(async {
                     Ok(vec![Pod {
@@ -1346,7 +1366,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
@@ -1424,7 +1446,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq("dgolubets.github.io/managed-node-pool"))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| Box::pin(async { Ok(vec![]) }));
 
         client
@@ -1496,7 +1520,9 @@ mod tests {
 
         client
             .expect_list_pods_with_labels()
-            .with(eq(LABEL_MANAGED_NODE_POOL))
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
             .returning(|_| {
                 Box::pin(async {
                     Ok(vec![Pod {
