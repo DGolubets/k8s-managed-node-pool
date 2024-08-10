@@ -36,7 +36,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
             - name: RUST_LOG
-              value: {{ .Values.logging.env_filter }}
+              value: {{ .Values.logging.envFilter }}
             - name: DO_TOKEN
               valueFrom:
                 secretKeyRef:
