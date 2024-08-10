@@ -1,7 +1,13 @@
-digital_ocean: {}
-#   cluster_id: ""
-#   token: ""
-
+digital_ocean: 
+  createSecret: true
+  # cluster_id: ""
+  # token: ""
+  # tokenSecret:
+  #   name: ""
+  #   key: ""
+  # cluster_idSecret:
+  #   name: ""
+  #   key: ""
 # Default values for managed-node-pool-operator-do.
 replicaCount: 1
 
