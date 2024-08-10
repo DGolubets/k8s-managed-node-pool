@@ -40,9 +40,9 @@ spec:
             - name: DO_TOKEN
               valueFrom:
                 secretKeyRef:
-                  {{- if .Values.digital_ocean.tokenSecret }}
-                  name: {{ .Values.digital_ocean.tokenSecret.name }}
-                  key: {{ .Values.digital_ocean.tokenSecret.key }}
+                  {{- if .Values.digitalOcean.tokenSecret }}
+                  name: {{ .Values.digitalOcean.tokenSecret.name }}
+                  key: {{ .Values.digitalOcean.tokenSecret.key }}
                   {{- else }}
                   name: {{ include "managed-node-pool-operator-do.fullname" . }}
                   key: token
@@ -50,12 +50,12 @@ spec:
             - name: DO_CLUSTER_ID
               valueFrom:
                 secretKeyRef:
-                  {{- if .Values.digital_ocean.cluster_idSecret }}
-                  name: {{ .Values.digital_ocean.cluster_idSecret.name }}
-                  key: {{ .Values.digital_ocean.cluster_idSecret.key }}
+                  {{- if .Values.digitalOcean.clusterIdSecret }}
+                  name: {{ .Values.digitalOcean.clusterIdSecret.name }}
+                  key: {{ .Values.digitalOcean.clusterIdSecret.key }}
                   {{- else }}
                   name: {{ include "managed-node-pool-operator-do.fullname" . }}
-                  key: cluster_id
+                  key: clusterId
                   {{- end }}
           {{- with .Values.env }}
           {{- toYaml . | nindent 8 }}

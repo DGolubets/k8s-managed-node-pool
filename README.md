@@ -34,8 +34,21 @@ And that sounds like a job for K8s Operator.
 helm install mnp oci://ghcr.io/dgolubets/managed-node-pool-operator-do \
 --namespace managed-node-pool \
 --create-namespace \
---set digital_ocean.cluster_id='{cluster id}' \
---set digital_ocean.token='{token}'
+--set digitalOcean.clusterId='{cluster id}' \
+--set digitalOcean.token='{token}'
+```
+
+Alternatively, to use custom secrets:
+
+```bash
+helm install mnp oci://ghcr.io/dgolubets/managed-node-pool-operator-do \
+--namespace managed-node-pool \
+--create-namespace \
+--set digitalOcean.createSecret=false \
+--set digitalOcean.clusterIdSecret.name='{cluster id secret name}' \
+--set digitalOcean.clusterIdSecret.key='{cluster id secret key}' \
+--set digitalOcean.tokenSecret.name='{token secret name}' \
+--set digitalOcean.tokenSecret.key='{token secret key}'
 ```
 
 ## Example

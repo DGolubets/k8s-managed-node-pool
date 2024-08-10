@@ -1,11 +1,11 @@
-digital_ocean: 
+digitalOcean:
   createSecret: true
-  # cluster_id: ""
+  # clusterId: ""
   # token: ""
   # tokenSecret:
   #   name: ""
   #   key: ""
-  # cluster_idSecret:
+  # clusterIdSecret:
   #   name: ""
   #   key: ""
 # Default values for managed-node-pool-operator-do.
@@ -39,7 +39,7 @@ securityContext:
   # runAsUser: 1000
 
 logging:
-  env_filter: info,k8s_managed_node_pool=debug
+  envFilter: info,k8s_managed_node_pool=debug
 
 env: []
 
