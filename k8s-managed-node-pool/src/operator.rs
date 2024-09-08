@@ -328,7 +328,7 @@ where
                     effect: Some("NoSchedule".to_string()),
                     key: Some(LABEL_MANAGED_NODE_POOL.to_string()),
                     operator: Some("Equal".to_string()),
-                    value: Some(get_pool_taint(pool)?.to_string()),
+                    value: Some(get_pool_full_name(pool)?),
                     ..Default::default()
                 }]),
                 ..Default::default()
@@ -382,7 +382,7 @@ fn patch_pool_settings(
 ) -> Result<NodePoolSettings, Error> {
     settings.taints.get_or_insert(vec![]).push(NodePoolTaint {
         key: LABEL_MANAGED_NODE_POOL.to_string(),
-        value: get_pool_taint(pool)?.to_string(),
+        value: get_pool_full_name(pool)?,
         effect: "NoSchedule".to_string(),
     });
     settings.labels.get_or_insert(HashMap::new()).insert(
@@ -422,15 +422,6 @@ fn get_pool_full_name(pool: &ManagedNodePool) -> Result<String, Error> {
             .ok_or(format_err!("Missing pool namespace"))?
     );
     Ok(name)
-}
-
-fn get_pool_taint(pool: &ManagedNodePool) -> Result<&str, Error> {
-    let uid = pool
-        .meta()
-        .uid
-        .as_deref()
-        .ok_or(format_err!("Missing pool UID"))?;
-    Ok(uid)
 }
 
 #[cfg(test)]
@@ -547,7 +538,7 @@ mod tests {
                 },
                 NodePoolTaint {
                     key: LABEL_MANAGED_NODE_POOL.to_string(),
-                    value: "pool1_uid".to_string(),
+                    value: "pool1.pool1_namespace".to_string(),
                     effect: "NoSchedule".to_string(),
                 },
             ]),
@@ -663,7 +654,7 @@ mod tests {
             }),
             taints: Some(vec![NodePoolTaint {
                 key: LABEL_MANAGED_NODE_POOL.to_string(),
-                value: "pool1_uid".to_string(),
+                value: "pool1.pool1_namespace".to_string(),
                 effect: "NoSchedule".to_string(),
             }]),
             tags: None,
@@ -1078,7 +1069,7 @@ mod tests {
             .unwrap()
             .push(NodePoolTaint {
                 key: LABEL_MANAGED_NODE_POOL.to_string(),
-                value: "pool1_uid".to_string(),
+                value: "pool1.pool1_namespace".to_string(),
                 effect: "NoSchedule".to_string(),
             });
 
@@ -1207,7 +1198,7 @@ mod tests {
             .unwrap()
             .push(NodePoolTaint {
                 key: LABEL_MANAGED_NODE_POOL.to_string(),
-                value: "pool1_uid".to_string(),
+                value: "pool1.pool1_namespace".to_string(),
                 effect: "NoSchedule".to_string(),
             });
 
