@@ -299,9 +299,10 @@ where
         let all_pods = labeled_pods
             .into_iter()
             .chain(pending_pods.into_iter().filter(|pod| {
-                find_pool_ref(pod)
-                    .iter()
-                    .any(|obj_ref| matches_pool_ref(pool, obj_ref))
+                !pod.labels().contains_key(LABEL_MANAGED_NODE_POOL) // exclude pending but already labeled
+                    && find_pool_ref(pod)
+                        .iter()
+                        .any(|obj_ref| matches_pool_ref(pool, obj_ref))
             }))
             .collect();
 
