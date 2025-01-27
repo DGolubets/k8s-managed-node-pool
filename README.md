@@ -74,6 +74,8 @@ spec:
     - tag1
     - tag2
   idle_timeout: "15s"
+  idle_when_completed: true
+  idle_when_failed: true
 ```
 
 Pod spec:
@@ -103,3 +105,11 @@ spec:
 ```
 
 The only requirement for pods is to have `nodeSelector` set, pointing to the pool they have to run on.
+
+## Configuring pool termination
+
+When all the pods used by a managed node pool are terminated, it will go into "idle" state and schedule termination after a period specified by `idle_timeout` setting.
+
+Pods in 'Completed' or 'Failed' states are NOT considered terminated by default and will prevent the termination until removed.
+
+This behavior can be changed by setting `idle_when_completed` and `idle_when_failed` settings to `true`.

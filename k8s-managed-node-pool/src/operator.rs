@@ -303,6 +303,15 @@ where
                     .iter()
                     .any(|obj_ref| matches_pool_ref(pool, obj_ref))
             }))
+            .filter(|p| {
+                let status = p.status.as_ref().and_then(|s| s.phase.as_deref());
+                match status {
+                    Some("Completed") => pool.spec.idle_when_completed.is_none_or(|x| x == false),
+                    Some("Failed") => pool.spec.idle_when_failed.is_none_or(|x| x == false),
+                    Some("Pending" | "Running" | "Unknown") => true,
+                    _ => false,
+                }
+            })
             .collect();
 
         Ok(all_pods)
@@ -435,6 +444,7 @@ fn get_pool_taint(pool: &ManagedNodePool) -> Result<&str, Error> {
 
 #[cfg(test)]
 mod tests {
+    use k8s_openapi::api::core::v1::PodStatus;
     use mockall::predicate::eq;
 
     use crate::{
@@ -484,6 +494,10 @@ mod tests {
                             }),
                             ..Default::default()
                         },
+                        status: Some(PodStatus {
+                            phase: Some("Running".to_string()),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     }])
                 })
@@ -590,6 +604,8 @@ mod tests {
             spec: ManagedNodePoolSpec {
                 settings: updated_settings,
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("test-pool-id".to_string()),
@@ -627,6 +643,10 @@ mod tests {
                             }),
                             ..Default::default()
                         },
+                        status: Some(PodStatus {
+                            phase: Some("Running".to_string()),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     }])
                 })
@@ -706,6 +726,8 @@ mod tests {
             spec: ManagedNodePoolSpec {
                 settings: updated_settings,
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("test-pool-id".to_string()),
@@ -743,6 +765,10 @@ mod tests {
                             }),
                             ..Default::default()
                         },
+                        status: Some(PodStatus {
+                            phase: Some("Running".to_string()),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     }])
                 })
@@ -802,6 +828,8 @@ mod tests {
             spec: ManagedNodePoolSpec {
                 settings: updated_settings,
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("test-pool-id".to_string()),
@@ -841,6 +869,8 @@ mod tests {
             spec: ManagedNodePoolSpec {
                 settings: Default::default(),
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("test-pool-id".to_string()),
@@ -895,6 +925,8 @@ mod tests {
                     taints: None,
                 },
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: None,
         };
@@ -965,6 +997,8 @@ mod tests {
                     taints: None,
                 },
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: None,
         };
@@ -994,6 +1028,10 @@ mod tests {
                     namespace: Some("pod1_namespace".to_string()),
                     ..Default::default()
                 },
+                status: Some(PodStatus {
+                    phase: Some("Pending".to_string()),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             Pod {
@@ -1011,6 +1049,10 @@ mod tests {
                         );
                         map
                     }),
+                    ..Default::default()
+                }),
+                status: Some(PodStatus {
+                    phase: Some("Pending".to_string()),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -1058,6 +1100,8 @@ mod tests {
                     }]),
                 },
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: None,
         };
@@ -1158,6 +1202,10 @@ mod tests {
                             }),
                             ..Default::default()
                         }),
+                        status: Some(PodStatus {
+                            phase: Some("Pending".to_string()),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     }])
                 })
@@ -1187,6 +1235,8 @@ mod tests {
             spec: ManagedNodePoolSpec {
                 settings: Default::default(),
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: None,
         };
@@ -1305,6 +1355,8 @@ mod tests {
                     ..Default::default()
                 },
                 idle_timeout: None,
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_status: Some(NodePoolStatus::CREATING),
@@ -1400,6 +1452,125 @@ mod tests {
                     ..Default::default()
                 },
                 idle_timeout: Some(Duration::from_secs(10)),
+                idle_when_completed: None,
+                idle_when_failed: None,
+            },
+            status: Some(ManagedNodePoolStatus {
+                node_pool_id: Some("node_pool_id".to_string()),
+                node_pool_status: Some(NodePoolStatus::CREATED),
+                destroy_after: None,
+            }),
+        };
+
+        let pool = Arc::new(pool);
+
+        let operator = Operator {
+            client: client.into(),
+            cloud_provider: cloud_provider.into(),
+        };
+        let operator = Arc::new(operator);
+
+        let action = operator.reconcile(pool).await.unwrap();
+
+        assert_eq!(action, Action::requeue(Duration::from_secs(10)))
+    }
+
+    #[tokio::test]
+    async fn when_node_pool_is_idle_with_completed_pods_schedule_delete() {
+        let mut client = MockKubeClient::new();
+        let mut cloud_provider = MockCloudProvider::new();
+
+        cloud_provider
+            .expect_find_pool_by_id()
+            .with(eq("node_pool_id"))
+            .return_once(move |_| {
+                Box::pin(async {
+                    Ok(Some(NodePool {
+                        id: "node_pool_id".to_string(),
+                        settings: Default::default(),
+                    }))
+                })
+            });
+
+        client
+            .expect_list_pods_with_labels()
+            .with(eq(
+                "dgolubets.github.io/managed-node-pool=pool1.pool1_namespace",
+            ))
+            .returning(|_| {
+                Box::pin(async {
+                    Ok(vec![
+                        Pod {
+                            metadata: ObjectMeta {
+                                labels: Some({
+                                    let mut map = BTreeMap::new();
+                                    map.insert(
+                                        LABEL_MANAGED_NODE_POOL.to_string(),
+                                        "pool1.pool1_namespace".to_string(),
+                                    );
+                                    map
+                                }),
+                                ..Default::default()
+                            },
+                            status: Some(PodStatus {
+                                phase: Some("Completed".to_string()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                        Pod {
+                            metadata: ObjectMeta {
+                                labels: Some({
+                                    let mut map = BTreeMap::new();
+                                    map.insert(
+                                        LABEL_MANAGED_NODE_POOL.to_string(),
+                                        "pool1.pool1_namespace".to_string(),
+                                    );
+                                    map
+                                }),
+                                ..Default::default()
+                            },
+                            status: Some(PodStatus {
+                                phase: Some("Failed".to_string()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                    ])
+                })
+            });
+
+        client
+            .expect_list_pods_with_fields()
+            .with(eq(FIELD_SELECTOR_PENDING))
+            .returning(|_| Box::pin(async { Ok(vec![]) }));
+
+        client
+            .expect_patch_pool_status()
+            .withf(|pool, status, _| {
+                pool.metadata.name.as_deref() == Some("pool1")
+                    && pool.metadata.namespace.as_deref() == Some("pool1_namespace")
+                    && status.node_pool_id.as_deref() == Some("node_pool_id")
+                    && status.destroy_after.is_some()
+            })
+            .return_once(move |_, _, _| Box::pin(async { Ok(()) }))
+            .once();
+
+        let pool = ManagedNodePool {
+            metadata: ObjectMeta {
+                uid: Some("pool1_uid".to_string()),
+                name: Some("pool1".to_string()),
+                namespace: Some("pool1_namespace".to_string()),
+                ..Default::default()
+            },
+            spec: ManagedNodePoolSpec {
+                settings: NodePoolSettings {
+                    name: "test-pool-1".to_string(),
+                    ..Default::default()
+                },
+                idle_timeout: Some(Duration::from_secs(10)),
+                idle_when_completed: Some(true),
+                idle_when_failed: Some(true),
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("node_pool_id".to_string()),
@@ -1480,6 +1651,8 @@ mod tests {
                     ..Default::default()
                 },
                 idle_timeout: Some(Duration::from_secs(10)),
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("node_pool_id".to_string()),
@@ -1539,6 +1712,10 @@ mod tests {
                             }),
                             ..Default::default()
                         },
+                        status: Some(PodStatus {
+                            phase: Some("Running".to_string()),
+                            ..Default::default()
+                        }),
                         ..Default::default()
                     }])
                 })
@@ -1573,6 +1750,8 @@ mod tests {
                     ..Default::default()
                 },
                 idle_timeout: Some(Duration::from_secs(10)),
+                idle_when_completed: None,
+                idle_when_failed: None,
             },
             status: Some(ManagedNodePoolStatus {
                 node_pool_id: Some("node_pool_id".to_string()),
