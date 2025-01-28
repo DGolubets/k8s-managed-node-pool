@@ -1,5 +1,5 @@
 # Temporary dev image
-FROM alpine:3.20
+FROM alpine:3.21
 ARG PACKAGE=k8s-managed-node-pool-do
 RUN apk add --update musl-dev openssl-dev rust cargo
 
@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=./target \
     cp /opt/app/target/release/${PACKAGE} /opt/app/release/application
 
 # Prod image
-FROM alpine:3.20
+FROM alpine:3.21
 ARG PACKAGE
 RUN apk add --no-cache libgcc openssl
 WORKDIR /opt/app
