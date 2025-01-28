@@ -26,6 +26,12 @@ spec:
                 type: integer
               idle_timeout:
                 type: string
+              idle_when_completed:
+                nullable: true
+                type: boolean
+              idle_when_failed:
+                nullable: true
+                type: boolean
               labels:
                 additionalProperties:
                   type: string

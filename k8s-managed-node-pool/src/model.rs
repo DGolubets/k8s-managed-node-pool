@@ -24,6 +24,8 @@ pub struct ManagedNodePoolSpec {
     #[serde(deserialize_with = "deserialize_option_duration")]
     #[schemars(with = "String")]
     pub idle_timeout: Option<Duration>,
+    pub idle_when_completed: Option<bool>,
+    pub idle_when_failed: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema, Default)]
