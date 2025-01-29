@@ -36,6 +36,7 @@ impl DigitalOcean {
             .bearer_auth(&self.settings.token)
             .send()
             .await?;
+        let response = validate_status(response).await?;
         let result: DoPoolsResponse = response.json().await?;
         let pools = result.node_pools.into_iter().map(from_do_pool).collect();
         Ok(pools)
@@ -57,6 +58,7 @@ impl CloudProvider for DigitalOcean {
         if response.status() == StatusCode::NOT_FOUND {
             Ok(None)
         } else {
+            let response = validate_status(response).await?;
             let result: DoPoolResponse = response.json().await?;
             let result = from_do_pool(result.node_pool);
             Ok(Some(result))
@@ -81,6 +83,7 @@ impl CloudProvider for DigitalOcean {
             .send()
             .await?;
 
+        let response = validate_status(response).await?;
         let result: DoPoolResponse = response.json().await?;
 
         let pool = result.node_pool;
@@ -108,6 +111,7 @@ impl CloudProvider for DigitalOcean {
             .send()
             .await?;
 
+        let response = validate_status(response).await?;
         let result: DoPoolResponse = response.json().await?;
 
         let pool = result.node_pool;
@@ -133,7 +137,7 @@ impl CloudProvider for DigitalOcean {
         if response.status() == StatusCode::NOT_FOUND {
             Ok(false)
         } else {
-            response.error_for_status()?;
+            validate_status(response).await?;
             Ok(true)
         }
     }
@@ -192,6 +196,18 @@ fn from_do_pool(pool: DoNodePool) -> NodePool {
     NodePool {
         id: pool.id,
         settings: from_do_pool_settings(pool.settings),
+    }
+}
+
+async fn validate_status(response: reqwest::Response) -> Result<reqwest::Response, Error> {
+    let status = response.status();
+    if status.is_server_error() || status.is_client_error() {
+        let text = response.text().await.unwrap_or_default();
+        let msg = format!("Request failed: status={}, text={}", status, text);
+        tracing::error!(msg);
+        Err(anyhow::anyhow!(msg))
+    } else {
+        Ok(response)
     }
 }
 
